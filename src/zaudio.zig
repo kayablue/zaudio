@@ -403,6 +403,24 @@ pub const MonoExpansionMode = enum(u32) {
     pub const default: MonoExpansionMode = .duplicate;
 };
 
+pub const Backend = enum(c_int) {
+    wasapi,
+    dsound,
+    winmm,
+    coreaudio,
+    sndio,
+    audio4,
+    oss,
+    pulseaudio,
+    alsa,
+    jack,
+    aaudio,
+    opensl,
+    webaudio,
+    custom,
+    null,
+};
+
 pub const AllocationCallbacks = extern struct {
     user_data: ?*anyopaque,
 
@@ -415,6 +433,72 @@ pub const AllocationCallbacks = extern struct {
     ) callconv(.c) ?*anyopaque,
 
     onFree: ?*const fn (ptr: ?*anyopaque, user_data: ?*anyopaque) callconv(.c) void,
+};
+
+pub const devicesCallbackProc = *const fn (
+    context: *Context,
+    device_type: Device.Type,
+    device_info: *const Device.Info,
+    user_data: ?*anyopaque,
+) callconv(.c) Bool32;
+
+pub const BackendCallbacks = extern struct {
+    onContextInit: ?*const fn (
+        context: *Context,
+        config: *const Context.Config,
+        callbacks: *BackendCallbacks,
+    ) callconv(.c) Result,
+    onContextUninit: ?*const fn (
+        context: *Context,
+    ) callconv(.c) Result,
+    onContextEnumerateDevices: ?*const fn (
+        context: *Context,
+        callback: devicesCallbackProc,
+    ) callconv(.c) Result,
+    onContextGetDeviceInfo: ?*const fn (
+        context: *Context,
+        device_type: Device.Type,
+        device_id: *const Device.Id,
+        device_info: *const Device.Info,
+    ) callconv(.c) Result,
+    onDeviceInit: ?*const fn (
+        device: *Device,
+        config: *const Device.Config,
+        descriptor_playback: *Device.Descriptor,
+        descriptor_capture: *Device.Descriptor,
+    ) callconv(.c) Result,
+    onDeviceUninit: ?*const fn (
+        device: *Device,
+    ) callconv(.c) Result,
+    onDeviceStart: ?*const fn (
+        device: *Device,
+    ) callconv(.c) Result,
+    onDeviceStop: ?*const fn (
+        device: *Device,
+    ) callconv(.c) Result,
+    onDeviceRead: ?*const fn (
+        device: *Device,
+        frames: ?*anyopaque,
+        frame_count: u32,
+        frames_read: *u32,
+    ) callconv(.c) Result,
+    onDeviceWrite: ?*const fn (
+        device: *Device,
+        frames: ?*const anyopaque,
+        frame_count: u32,
+        frames_written: *u32,
+    ) callconv(.c) Result,
+    onDeviceDataLoop: ?*const fn (
+        device: *Device,
+    ) callconv(.c) Result,
+    onDeviceDataLoopWakeup: ?*const fn (
+        device: *Device,
+    ) callconv(.c) Result,
+    onDeviceDataGetInfo: ?*const fn (
+        device: *Device,
+        type: Device.Type,
+        info: *Device.Info,
+    ) callconv(.c) Result,
 };
 
 pub const Bool32 = enum(u32) {
@@ -468,7 +552,164 @@ pub const seekProc = *const fn (user_data: ?*anyopaque, offset: i64, origin: Vfs
 pub const tellProc = *const fn (user_data: ?*anyopaque, cursor: ?*i64) callconv(.c) Result;
 
 pub const Context = opaque {
-    // TODO: Add methods.
+    pub fn create(backends: []const Backend, config: Config) Error!*Context {
+        var handle: ?*Context = null;
+
+        if (backends.len == 0) {
+            try maybeError(zaudioContextCreate(null, 0, &config, &handle));
+        } else {
+            try maybeError(zaudioContextCreate(backends.ptr, @intCast(backends.len), &config, &handle));
+        }
+        return handle.?;
+    }
+    extern fn zaudioContextCreate(
+        backends: ?[*]const Backend,
+        backend_count: u32,
+        config: *const Config,
+        context: ?*?*Context,
+    ) Result;
+
+    pub const destroy = zaudioContextDestroy;
+    extern fn zaudioContextDestroy(handle: *Context) void;
+
+    pub fn enumerateDevices(
+        context: *Context,
+        callback: EnumerateDevicesCallbackProc,
+        user_data: ?*anyopaque,
+    ) Error!void {
+        try maybeError(ma_context_enumerate_devices(context, callback, user_data));
+    }
+
+    extern fn ma_context_enumerate_devices(
+        context: *Context,
+        callback: EnumerateDevicesCallbackProc,
+        user_data: ?*anyopaque,
+    ) Result;
+
+    pub fn getPlaybackDevices(context: *Context) Error![]Device.Info {
+        var device_infos: [*]Device.Info = undefined;
+        var device_count: u32 = undefined;
+
+        try maybeError(ma_context_get_devices(context, &device_infos, &device_count, null, null));
+        return device_infos[0..device_count];
+    }
+
+    pub fn getCaptureDevices(context: *Context) Error![]Device.Info {
+        var device_infos: [*]Device.Info = undefined;
+        var device_count: u32 = undefined;
+
+        try maybeError(ma_context_get_devices(context, null, null, &device_infos, &device_count));
+        return device_infos[0..device_count];
+    }
+
+    extern fn ma_context_get_devices(
+        context: *Context,
+        playback_device_infos: ?*[*]Device.Info,
+        playback_device_count: ?*u32,
+        capture_device_infos: ?*[*]Device.Info,
+        capture_device_count: ?*u32,
+    ) Result;
+
+    pub fn getDeviceInfo(
+        context: *Context,
+        device_type: Device.Type,
+        device_id: *const Device.Id,
+    ) Error!Device.Info {
+        var device_info: Device.Info = undefined;
+        try maybeError(ma_context_get_device_info(context, device_type, device_id, &device_info));
+
+        return device_info;
+    }
+    extern fn ma_context_get_device_info(
+        context: *Context,
+        device_type: Device.Type,
+        device_id: *const Device.Id,
+        device_info: *Device.Info,
+    ) Result;
+
+    pub fn isLoopbackSupported(context: *Context) bool {
+        return ma_context_is_loopback_supported(context) == .true32;
+    }
+    extern fn ma_context_is_loopback_supported(context: *Context) Bool32;
+
+    pub const EnumerateDevicesCallbackProc = ?*const fn (
+        context: *Context,
+        device_type: Device.Type,
+        info: *const Device.Info,
+        user_data: ?*anyopaque,
+    ) callconv(.c) Bool32;
+
+    pub const Config = extern struct {
+        log: ?*Log,
+        thread_priority: ThreadPriority,
+        thread_stack_size: u64,
+        user_data: ?*anyopaque,
+        allocation_callbacks: AllocationCallbacks,
+        dsound: extern struct {
+            h_wnd: ?*anyopaque,
+        },
+        alsa: extern struct {
+            use_verbose_device_enumeration: Bool32 = .false32,
+        },
+        pulse: extern struct {
+            application_name: ?[*:0]const u8 = null,
+            server_name: ?[*:0]const u8 = null,
+            try_auto_spawn: Bool32 = .false32,
+        },
+        coreaudio: extern struct {
+            session_category: IosSessionCategory,
+            // packed 32bit struct?
+            session_category_options: u32,
+            no_audio_session_activate: Bool32 = .false32,
+            no_audio_session_deactivate: Bool32 = .false32,
+        },
+        jack: extern struct {
+            client_name: ?[*:0]const u8 = null,
+            try_start_server: Bool32 = .false32,
+        },
+        custom: BackendCallbacks,
+
+        pub const ThreadPriority = enum(c_int) {
+            idle = -5,
+            lowest = -4,
+            low = -3,
+            normal = -2,
+            high = -1,
+            highest = 0,
+            realtime = 1,
+
+            pub const default: ThreadPriority = .highest;
+        };
+
+        pub const IosSessionCategory = enum(c_int) {
+            default = 0,
+            none,
+            ambient,
+            solo_ambient,
+            playback,
+            record,
+            play_and_record,
+            multi_route,
+        };
+
+        pub const IosSessionCategoryOption = enum(c_int) {
+            mix_with_others = 0x01,
+            duck_others = 0x02,
+            allow_bluetooth = 0x04,
+            default_to_speaker = 0x08,
+            interrupt_spoken_audio_and_mix_with_others = 0x11,
+            allow_bluetooth_a2dp = 0x20,
+            allow_air_play = 0x40,
+        };
+
+        pub fn init() Config {
+            var config: Config = undefined;
+            zaudioContextConfigInit(&config);
+            return config;
+        }
+
+        extern fn zaudioContextConfigInit(out_config: *Config) void;
+    };
 };
 
 pub const Log = opaque {
@@ -2057,6 +2298,12 @@ pub const Device = opaque {
     pub const getPlaybackChannels = zaudioDeviceGetPlaybackChannels;
     extern fn zaudioDeviceGetPlaybackChannels(device: *const Device) u32;
 
+    pub const getCaptureChannels = zaudioDeviceGetCaptureChannels;
+    extern fn zaudioDeviceGetCaptureChannels(device: *const Device) u32;
+
+    pub const getCaptureFormat = zaudioDeviceGetCaptureFormat;
+    extern fn zaudioDeviceGetCaptureFormat(device: *const Device) Format;
+
     pub const Type = enum(c_int) {
         playback = 1,
         capture = 2,
@@ -2070,6 +2317,36 @@ pub const Device = opaque {
         started = 2,
         starting = 3,
         stopping = 4,
+    };
+
+    pub const Info = extern struct {
+        // TODO: how to get these from the macros?
+        const DEVICE_NAME_LENGTH = 255;
+        const NATIVE_DATA_FORMATS = 64;
+
+        id: Id,
+        name: [DEVICE_NAME_LENGTH + 1]u8,
+        is_default: Bool32,
+        native_data_format_count: [NATIVE_DATA_FORMATS]extern struct {
+            format: Format,
+            channels: u32,
+            sample_rate: u32,
+            flags: u32,
+        },
+    };
+
+    pub const Descriptor = extern struct {
+        const MAX_CHANNELS = 254; // TODO: above
+
+        device_id: *const Id,
+        share_mode: ShareMode,
+        format: Format,
+        channels: u32,
+        sample_rate: u32,
+        channel_map: [MAX_CHANNELS]Channel,
+        period_size_in_frames: u32,
+        period_size_in_milliseconds: u32,
+        period_count: u32,
     };
 
     pub const Config = extern struct {
@@ -3381,6 +3658,19 @@ test "zaudio.sound.basic" {
     try expect(num_channels == 1);
     try expect(sample_rate > 0);
     try expect(format != .unknown);
+}
+
+test "zaudio.context.basic" {
+    init(std.testing.allocator);
+    defer deinit();
+
+    // TODO: OS-dependent tests
+    const backends = [_]Backend{.pulseaudio};
+    var context: *Context = Context.create(&backends, .init()) catch |err| {
+        std.debug.print("Failed to create Context with error: {s}", .{@errorName(err)});
+        return;
+    };
+    defer context.destroy();
 }
 
 test "zaudio.device.basic" {
