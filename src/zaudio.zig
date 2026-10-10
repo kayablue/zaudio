@@ -733,8 +733,222 @@ pub const DataSourceBase = extern struct {
 };
 
 pub const DataSource = opaque {
+    pub fn create(config: Config, data_source_base: *DataSourceBase) Error!*DataSource {
+        try maybeError(zaudioDataSourceCreate(&config, data_source_base));
+        return @ptrCast(data_source_base);
+    }
+    extern fn zaudioDataSourceCreate(config: *const Config, data_source_base: *DataSourceBase) Result;
+
     pub const destroy = zaudioDataSourceDestroy;
     extern fn zaudioDataSourceDestroy(handle: *DataSource) void;
+
+    pub fn getFormat(data_source: *DataSource) Error!Format {
+        var format: Format = undefined;
+        try maybeError(ma_data_source_get_data_format(data_source, &format, null, null, null, 0));
+        return format;
+    }
+
+    pub fn getChannels(data_source: *DataSource) Error!u32 {
+        var channels: u32 = undefined;
+        try maybeError(ma_data_source_get_data_format(data_source, null, &channels, null, null, 0));
+        return channels;
+    }
+
+    pub fn getSampleRate(data_source: *DataSource) Error!u32 {
+        var sample_rate: u32 = undefined;
+        try maybeError(ma_data_source_get_data_format(data_source, null, null, &sample_rate, null, 0));
+        return sample_rate;
+    }
+
+    extern fn ma_data_source_get_data_format(
+        data_source: *DataSource,
+        format: ?*Format,
+        pChannels: ?*u32,
+        pSampleRate: ?*u32,
+        channel_map: ?*Channel,
+        channel_map_cap: usize,
+    ) Result; // TODO: channel map
+
+    pub fn readPCMFrames(
+        data_source: *DataSource,
+        frames_out: ?*anyopaque,
+        frame_count: u64,
+    ) Error!u64 {
+        var frames_read: u64 = undefined;
+        try maybeError(ma_data_source_read_pcm_frames(
+            data_source,
+            frames_out,
+            frame_count,
+            &frames_read,
+        ));
+        return frames_read;
+    }
+    extern fn ma_data_source_read_pcm_frames(
+        data_source: *DataSource,
+        frames_out: ?*anyopaque,
+        frame_count: u64,
+        frames_read: ?*u64,
+    ) Result;
+
+    /// Equivalent to `readPCMFrames(data_source, null, frame_count)`
+    pub fn seekPCMFrames(data_source: *DataSource, frame_count: u64) Error!u64 {
+        var frames_seeked: u64 = undefined;
+        try maybeError(ma_data_source_seek_pcm_frames(
+            data_source,
+            frame_count,
+            &frames_seeked,
+        ));
+        return frames_seeked;
+    }
+    extern fn ma_data_source_seek_pcm_frames(
+        data_source: *DataSource,
+        frame_count: u64,
+        frames_seeked: ?*u64,
+    ) Result;
+
+    pub fn seekToPCMFrame(data_source: *DataSource, frame_index: u64) Error!void {
+        try maybeError(ma_data_source_seek_to_pcm_frame(data_source, frame_index));
+    }
+    extern fn ma_data_source_seek_to_pcm_frame(
+        data_source: *DataSource,
+        frame_index: u64,
+    ) Result;
+
+    pub fn seekSeconds(data_source: *DataSource, second_count: f32) Error!f32 {
+        var seconds_seeked: f32 = undefined;
+        try maybeError(ma_data_source_seek_seconds(data_source, second_count, &seconds_seeked));
+        return seconds_seeked;
+    }
+    extern fn ma_data_source_seek_seconds(
+        data_source: *DataSource,
+        second_count: f32,
+        seconds_seeked: ?*f32,
+    ) Result;
+
+    pub fn seekToSecond(data_source: *DataSource, seek_point_in_seconds: f32) Error!void {
+        try maybeError(ma_data_source_seek_to_second(data_source, seek_point_in_seconds));
+    }
+    extern fn ma_data_source_seek_to_second(
+        data_source: *DataSource,
+        seek_point_in_seconds: f32,
+    ) Result;
+
+    pub fn getCursorInPCMFrames(data_source: *DataSource) Error!u64 {
+        var cursor: u64 = undefined;
+        try maybeError(ma_data_source_get_cursor_in_pcm_frames(data_source, &cursor));
+        return cursor;
+    }
+    extern fn ma_data_source_get_cursor_in_pcm_frames(
+        data_source: *DataSource,
+        cursor: ?*u64,
+    ) Result;
+
+    pub fn getLengthInPCMFrames(data_source: *DataSource) Error!u64 {
+        var length: u64 = undefined;
+        try maybeError(ma_data_source_get_length_in_pcm_frames(data_source, &length));
+        return length;
+    }
+    extern fn ma_data_source_get_length_in_pcm_frames(
+        data_source: *DataSource,
+        length: ?*u64,
+    ) Result;
+
+    pub fn getCursorInSeconds(data_source: *DataSource) Error!f32 {
+        var cursor: f32 = undefined;
+        try maybeError(ma_data_source_get_cursor_in_seconds(data_source, &cursor));
+        return cursor;
+    }
+    extern fn ma_data_source_get_cursor_in_seconds(data_source: *DataSource, cursor: ?*f32) Result;
+
+    pub fn getLengthInSeconds(data_source: *DataSource) Error!f32 {
+        var length: f32 = undefined;
+        try maybeError(ma_data_source_get_length_in_seconds(data_source, &length));
+        return length;
+    }
+    extern fn ma_data_source_get_length_in_seconds(data_source: *DataSource, length: ?*f32) Result;
+
+    pub fn setLooping(data_source: *DataSource, is_looping: bool) Error!void {
+        const is_looping_32: Bool32 = if (is_looping) .true32 else .false32;
+        try maybeError(ma_data_source_set_looping(data_source, is_looping_32));
+    }
+    extern fn ma_data_source_set_looping(data_source: *DataSource, is_looping: Bool32) Result;
+
+    pub fn isLooping(data_source: *const DataSource) bool {
+        return ma_data_source_is_looping(data_source) == .true32;
+    }
+    extern fn ma_data_source_is_looping(data_source: *const DataSource) Bool32;
+
+    pub fn setRangeInPCMFrames(data_source: *DataSource, range: FrameRange) Error!void {
+        try maybeError(ma_data_source_set_range_in_pcm_frames(
+            data_source,
+            range.beginning,
+            range.end,
+        ));
+    }
+    extern fn ma_data_source_set_range_in_pcm_frames(
+        data_source: *DataSource,
+        range_beg_in_frames: u64,
+        range_end_in_frames: u64,
+    ) Result;
+
+    pub fn getRangeInPCMFrames(data_source: *const DataSource) FrameRange {
+        var range: FrameRange = undefined;
+        ma_data_source_get_range_in_pcm_frames(data_source, &range.beginning, &range.end);
+        return range;
+    }
+    extern fn ma_data_source_get_range_in_pcm_frames(
+        data_source: *const DataSource,
+        range_beg_in_frames: ?*u64,
+        range_end_in_frames: ?*u64,
+    ) void;
+
+    pub fn setLoopPointInPCMFrames(data_source: *DataSource, range: FrameRange) Error!void {
+        try maybeError(ma_data_source_set_loop_point_in_pcm_frames(
+            data_source,
+            range.beginning,
+            range.end,
+        ));
+    }
+    extern fn ma_data_source_set_loop_point_in_pcm_frames(
+        data_source: *DataSource,
+        loop_beg_in_frames: u64,
+        loop_end_in_frames: u64,
+    ) Result;
+
+    pub fn getLoopPointInPCMFrames(data_source: *const DataSource) FrameRange {
+        var range: FrameRange = undefined;
+        ma_data_source_get_loop_point_in_pcm_frames(data_source, &range.beginning, &range.end);
+        return range;
+    }
+    extern fn ma_data_source_get_loop_point_in_pcm_frames(
+        data_source: *const DataSource,
+        loop_beg_in_frames: ?*u64,
+        loop_end_in_frames: ?*u64,
+    ) void;
+
+    pub fn setCurrent(data_source: *DataSource, current: ?*DataSource) Error!void {
+        try maybeError(ma_data_source_set_current(data_source, current));
+    }
+    extern fn ma_data_source_set_current(data_source: *DataSource, current: ?*DataSource) Result;
+
+    pub const getCurrent = ma_data_source_get_current;
+    extern fn ma_data_source_get_current(data_source: *const DataSource) ?*DataSource;
+
+    pub fn setNext(data_source: *DataSource, next: ?*DataSource) Error!void {
+        try maybeError(ma_data_source_set_next(data_source, next));
+    }
+    extern fn ma_data_source_set_next(data_source: *DataSource, next: ?*DataSource) Result;
+
+    pub const getNext = ma_data_source_get_next;
+    extern fn ma_data_source_get_next(data_source: *const DataSource) ?*DataSource;
+
+    pub fn setNextCallback(data_source: *DataSource, on_get_next: GetNextProc) Error!void {
+        try maybeError(ma_data_source_set_next_callback(data_source, on_get_next));
+    }
+    extern fn ma_data_source_set_next_callback(data_source: *DataSource, on_get_next: GetNextProc) Result;
+
+    pub const getNextCallback = ma_data_source_get_next_callback;
+    extern fn ma_data_source_get_next_callback(data_source: *const DataSource) GetNextProc;
 
     pub const Config = extern struct {
         vtable: *const VTable,
@@ -747,11 +961,9 @@ pub const DataSource = opaque {
         extern fn zaudioDataSourceConfigInit(out_config: *Config) void;
     };
 
-    pub fn create(config: Config, data_source_base: *DataSourceBase) Error!*DataSource {
-        try maybeError(zaudioDataSourceCreate(&config, data_source_base));
-        return @ptrCast(data_source_base);
-    }
-    extern fn zaudioDataSourceCreate(config: *const Config, data_source_base: *DataSourceBase) Result;
+    pub const GetNextProc = ?*const fn (*DataSource) callconv(.c) void;
+
+    pub const FrameRange = struct { beginning: u64, end: u64 };
 
     pub const Flags = packed struct(u32) {
         self_managed_range_and_loop_point: bool = false,
@@ -3665,7 +3877,7 @@ test "zaudio.context.basic" {
     defer deinit();
 
     // TODO: OS-dependent tests
-    const backends = [_]Backend{.pulseaudio};
+    const backends = [_]Backend{.null};
     var context: *Context = Context.create(&backends, .init()) catch |err| {
         std.debug.print("Failed to create Context with error: {s}", .{@errorName(err)});
         return;
@@ -3706,6 +3918,34 @@ test "zaudio.node_graph.basic" {
     const node_graph = try NodeGraph.create(config);
     defer node_graph.destroy();
     _ = node_graph.asNode().getTime();
+}
+
+test "zaudio.data_source.basic" {
+    init(std.testing.allocator);
+    defer deinit();
+
+    const waveform: *Waveform = try .create(.init(.float32, 4, 96000, .sine, 1.0, 440));
+    defer waveform.destroy();
+
+    const data_source = waveform.asDataSourceMut();
+
+    try expect(try data_source.getFormat() == .float32);
+    try expect(try data_source.getChannels() == 4);
+    try expect(try data_source.getSampleRate() == 96000);
+
+    try data_source.setRangeInPCMFrames(.{ .beginning = 1, .end = 999 });
+    try expect(std.meta.eql(data_source.getRangeInPCMFrames(), .{ .beginning = 1, .end = 999 }));
+
+    try expect(!data_source.isLooping());
+
+    try data_source.setLooping(true);
+    try expect(data_source.isLooping());
+
+    try data_source.setLoopPointInPCMFrames(.{ .beginning = 23, .end = 765 });
+    try expect(std.meta.eql(
+        data_source.getLoopPointInPCMFrames(),
+        .{ .beginning = 23, .end = 765 },
+    ));
 }
 
 test "zaudio.audio_buffer" {

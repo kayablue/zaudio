@@ -17,7 +17,7 @@ Provided structs:
 - [x] `Context`
 - [ ] `ResourceManager` (missing methods)
 - [ ] `Log` (missing methods)
-- [x] `DataSource` (missing methods)
+- [x] `DataSource`
   - [x] `Waveform`
   - [x] `Noise`
   - [x] custom data sources
